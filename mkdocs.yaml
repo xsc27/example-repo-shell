@@ -1,0 +1,62 @@
+site_name: Makefile Hello World
+site_description: Makefile repo example
+site_url: ''
+repo_url: 'https://github.com/xsc27/example-repo-shell'
+repo_name: xsc27/example-repo-shell
+remote_branch: gh-pages
+use_directory_urls: false
+
+theme:
+  name: material
+  palette:
+    scheme: slate
+    include_search_page: false
+  features:
+    - navigation.expand
+    - navigation.indexes
+    - navigation.instant
+    - navigation.tabs
+    - navigation.top
+    - toc.integrate
+
+extra:
+  generator: false
+  # version:
+
+markdown_extensions:
+  - attr_list
+  - admonition
+  - footnotes
+  - meta
+  - md_in_html
+  - mdx_truly_sane_lists
+  - tables
+  - wikilinks
+  - pymdownx.betterem
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.magiclink
+  - pymdownx.snippets:
+      check_paths: true
+  - pymdownx.superfences
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+  - redirects:
+      redirect_maps:
+        index.md: readme.md
+  - minify:
+      minify_html: true
+      minify_js: true
+      minify_css: true
+      htmlmin_opts:
+        remove_empty_space: true
+        remove_comments: true
+
+nav:
+  - Home:
+    - Readme: readme.md
+    - Changelog: changelog.md
+    - License: license.md
