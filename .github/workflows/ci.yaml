@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+    paths-ignore: [CHANGELOG.md]
+  workflow_dispatch:
+    # Do not use with automatic date-versioning
+    inputs:
+      release:
+        default: ''
+        description: 'Release name, instead of data-sha.'
+        required: true
+      ref:
+        description: 'Ref to cut a release. If not tag is provide, the release will be used to tag the HEAD of the default branch.'
+        required: false
+
+concurrency:
+  group: ci-${{ github.ref_name }}
+  cancel-in-progress: ${{ ! contains('main master trunk', github.ref_name) }}
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - run: which sh
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+      - name: Install pre-commit
+        run: python3 -m pip install pre-commit
+      - run: make lint
+
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: make build
+      - run: make test
+      - uses: EnricoMi/publish-unit-test-result-action@v1
+        if: always()
+        with:
+          files: .tests/*.xml
+      - uses: actions/upload-artifact@v2
+        with:
+          name: dist
+          path: dist
+          if-no-files-found: error
+          retention-days: 1
+
+  container:
+    needs: [unit]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Fetch artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: dist
+          path: dist
+      - name: Run container
+        run: make test-container
+      - uses: EnricoMi/publish-unit-test-result-action@v1
+        if: always()
+        with:
+          files: .tests/*.xml
+          check_name: "Container Tests Results"
+      - name: Run container again
+        # Goss exits 0 when outputting to file
+        # and is not able to have multiple output formats
+        run: make test-container CI=''
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: make docs
+
+  bump:
+    if: ${{ contains('main master trunk', github.ref_name) }}
+    # Uncomment to use manual versioning
+    # if: github.event.name == 'workflow_dispatch'
+    needs: [lint, unit, container, docs]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Set git user
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+      - name: Generate changelog  # crude example
+        run: |
+          TAG="$(git describe --tags --abbrev=0 --match 'v*')" || printf -- ''
+          git log "${TAG}$([ -n "${TAG}" ] && printf -- '..')HEAD" --pretty='format:* %s (%h)' \
+            > CHANGELOG.md
+          git commit -m 'docs(changelog): update from CI' CHANGELOG.md
+      - name: Set version
+        id: version
+        run: |
+          VER='${{ github.event.inputs.release }}'
+          VER="${VER:-v$(date +'%Y.%m.%d')-$(git rev-parse --short HEAD)}"
+          echo "::set-output name=value::${VER}"
+      - name: Tag
+        run: |
+          git tag -a -m ${{ steps.version.outputs.value }} ${{ steps.version.outputs.value }} ${{ github.event.inputs.ref }}
+          git push --follow-tags
+    outputs:
+      version: ${{ steps.version.outputs.value }}
