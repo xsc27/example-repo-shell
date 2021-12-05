@@ -1,0 +1,9 @@
+# Distribution
+/dist
+
+# Docs
+/site
+
+# Tests
+.tests
+goss-*
