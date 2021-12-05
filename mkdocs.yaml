@@ -1,0 +1,40 @@
+site_name: Makefile Hello World
+site_description: Makefile repo example
+site_url: ''
+repo_url: 'https://github.com/AudaxHealthInc/example-repo-makefile'
+repo_name: AudaxHealthInc/example-repo-makefile
+remote_branch: gh-pages
+use_directory_urls: false
+
+theme:
+  name: material
+  palette:
+    scheme: slate
+    include_search_page: false
+  features:
+    - navigation.indexes
+    - navigation.instant
+    - navigation.tabs
+    - navigation.top
+
+extra:
+  generator: false
+
+markdown_extensions:
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.magiclink
+  - pymdownx.snippets:
+      check_paths: true
+  - pymdownx.superfences
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+
+nav:
+  - Home:
+    - Readme: readme.md
+    - Changelog: changelog.md
+    - License: license.md
