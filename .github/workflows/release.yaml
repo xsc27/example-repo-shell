@@ -1,0 +1,158 @@
+name: Release
+
+on:
+  create:
+  pull_request:
+    branches: [ 'v*' ]
+    types: [ closed ]
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Release name'
+        required: true
+  workflow_run:
+    workflows: [ CI ]
+    branches: [ main, master, trunk ]  # $default-branch does not seem to work.
+    types: [ completed ]
+
+concurrency: ${{ github.workflow }}
+
+jobs:
+
+  bump:
+    if: ${{
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.merged == true ||
+      github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Set git user
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+      - name: Generate changelog  # crude example
+        run: |
+          TAG="$(git describe --tags --abbrev=0 --match 'v*')" || printf -- ''
+          GIT_LOG="$(git log "${TAG}$([ -n "${TAG}" ] && printf -- '..')HEAD" --pretty='format:* %s (%h)')"
+          printf -- 'GIT_LOG<<EOF\n%s\nEOF\n' "${GIT_LOG}"  >> "${GITHUB_ENV}"
+          # { echo "GIT_LOG<<EOF"; echo "${GIT_LOG}"; echo EOF; } >> "${GITHUB_ENV}"
+      - name: Set version
+        id: version
+        run: |
+          VER='${{ github.event.inputs.release }}'
+          VER="${VER:-${GITHUB_HEAD_REF}}"
+          VER="${VER:-v$(date +'%Y.%m.%d')-$(git rev-parse --short HEAD)}"
+          echo "::set-output name=value::${VER}"
+      - name: Commit changelog
+        run: |
+          mv {,/tmp/}CHANGELOG.md
+          printf -- '##${{ steps.version.outputs.value }}\n\n${{ env.GIT_LOG }}\n\n' > CHANGELOG.md
+          cat /tmp/CHANGELOG.md >> CHANGELOG.md
+          git commit -m 'docs(changelog): update from CI' CHANGELOG.md
+      - name: Create latest tags
+        run: |
+          VER='${{ steps.version.outputs.value }}'
+          git tag -a -m "${VER}" "${VER}"
+          git tag --force latest
+      - name: Create major and minors tags
+        if: ${{ github.event_name == 'workflow_run' }}
+        run: |
+          VER='${{ steps.version.outputs.value }}'
+          for TAG in "${VER%.*.*}" "${VER%.*}"; do
+            git tag --force "${TAG}"
+          done
+      - name: Push tags and changelog
+        run: git push --tags --follow-tags --force
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+      changelog: ${{ env.GIT_LOG }}
+
+  pkg:
+    needs: [bump]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: ${{ needs.bump.outputs.version }}
+      - run: make build
+      - uses: actions/upload-artifact@v2
+        with:
+          name: dist
+          path: dist
+          if-no-files-found: error
+          retention-days: 1
+
+  container:
+    needs: [bump, pkg]
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY: ghcr.io
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: ${{ needs.bump.outputs.version }}
+      - uses: actions/download-artifact@v2
+      - name: Login
+        uses: docker/login-action@v1
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate Metadata
+        id: meta
+        uses: docker/metadata-action@v3
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ github.repository }}
+          tags: |
+            type=match,pattern=v(.*),group=1,value=${{ needs.bump.outputs.version }}
+            type=semver,pattern={{version}},value=${{ needs.bump.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.bump.outputs.version }}
+            type=semver,pattern={{major}},value=${{ needs.bump.outputs.version }}
+      - name: Build and Push
+        id: docker_build
+        uses: docker/build-push-action@v2
+        with:
+          context: .  # Required to avoid checkout
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  release:
+    needs: [bump, pkg]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v2
+      - uses: ncipollo/release-action@v1.9.0
+        with:
+          artifacts: 'dist/*'
+          artifactErrorsFailBuild: 'true'
+          generateReleaseNotes: 'true'
+          tag: ${{ needs.bump.outputs.version }}
+
+  docs:
+    needs: [bump]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: ${{ needs.bump.outputs.version }}
+      - uses: actions/setup-python@v2.3.1
+        with:
+          cache: pip
+          cache-dependency-path: requirements-docs.txt
+      - name: Install dependencies
+        run: |
+          pip install --user wheel
+          pip install --user --requirement requirements-docs.txt
+      - run: make docs CMD='gh-deploy --force'
+        env:
+          SITE_URL:
