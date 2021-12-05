@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [ '**' ]
+    paths-ignore: [ CHANGELOG.md ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2.3.1
+        with:
+          cache: pip
+          cache-dependency-path: .pre-commit-config.yaml
+      - name: Install pre-commit
+        run: python3 -m pip install pre-commit
+      - run: make lint
+
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: make build
+      - run: make test
+      - uses: EnricoMi/publish-unit-test-result-action@v1
+        if: always()
+        with:
+          files: .tests/*.xml
+      - uses: actions/upload-artifact@v2
+        with:
+          name: dist
+          path: dist
+          if-no-files-found: error
+          retention-days: 1
+
+  container:
+    needs: [unit]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Fetch artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: dist
+          path: dist
+      - name: Run container
+        run: make test-container
+      - uses: EnricoMi/publish-unit-test-result-action@v1
+        if: always()
+        with:
+          files: .tests/*.xml
+          check_name: "Container Tests Results"
+      - name: Run container again
+        # Goss exits 0 when outputting to file
+        # and is not able to have multiple output formats
+        run: make test-container CI=''
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2.3.1
+        with:
+          cache: pip
+          cache-dependency-path: requirements-docs.txt
+      - name: Install dependencies
+        run: pip install --user --requirement requirements-docs.txt
+      - run: make docs
