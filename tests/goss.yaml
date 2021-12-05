@@ -1,0 +1,23 @@
+file:
+  /usr/local/bin/prog.sh:
+    exists: true
+    mode: "0755"
+    owner: root
+    group: root
+    filetype: file
+command:
+  no args:
+    exit-status: 0
+    exec: prog.sh
+    stdout:
+      - 'Hello World!'
+  one arg:
+    exit-status: 0
+    exec: prog.sh foo
+    stdout:
+      - 'Hello foo!'
+  two args:
+    exit-status: 0
+    exec: prog.sh foo bar
+    stdout:
+      - 'Hello foo bar!'
